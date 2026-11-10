@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FitLog</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#101114;--card:#1a1c21;--c2:#272a31;--tx:#f2f1ec;--mut:#868a94;--ac:#ff7a45;--ok:#5ad19a}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--tx);font:15px/1.4 "Avenir Next","Segoe UI",system-ui,sans-serif;padding:8px 14px calc(92px + env(safe-area-inset-bottom))}
+h2{font-size:18px;font-weight:700;text-transform:capitalize}h3{margin-bottom:12px}
+small,.mut{color:var(--mut);font-size:13px}
+button{font:inherit;color:inherit;border:0;background:none}
+.card{background:var(--card);border-radius:20px;padding:14px;margin:10px 0}
+.dn{display:flex;justify-content:space-between;align-items:center;padding:6px 0}
+.dn button{width:38px;height:38px;border-radius:50%;background:var(--card);font-size:22px}
+.row{display:grid;grid-template-columns:1fr 1.15fr;gap:10px}.row .card{margin:0}
+.ring{position:relative;display:grid;place-items:center}.ring svg{width:100%}
+.ring div{position:absolute;text-align:center}.ring b{font-size:30px;display:block;line-height:1}
+.tr,.pg{fill:none;stroke-width:9;stroke-linecap:round}.tr{stroke:var(--c2)}.pg{stroke:var(--ac)}
+.mb{display:grid;grid-template-columns:1fr auto;font-size:13px;margin-bottom:9px}
+.mb i{grid-column:1/3;height:6px;background:var(--c2);border-radius:3px;margin-top:4px;overflow:hidden}
+.mb b{display:block;height:100%;background:var(--tx);border-radius:3px}
+.meal{display:grid;gap:2px;border-left:3px solid var(--ac);border-radius:6px 20px 20px 6px}
+.meal span{color:var(--mut);font-size:13px}
+.fab{position:fixed;right:18px;bottom:calc(84px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;background:var(--ac);color:#111;font-size:30px;box-shadow:0 6px 18px #0008}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;gap:6px;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#101114ee}
+nav button{flex:1;padding:11px 0;border-radius:16px;background:var(--card);color:var(--mut);font-weight:600}
+nav button.on{background:var(--tx);color:#111}
+#sh{position:fixed;inset:0;z-index:5}.bd{position:absolute;inset:0;background:#000a}
+.sheet{position:absolute;left:0;right:0;bottom:0;max-height:85%;overflow:auto;background:var(--card);border-radius:24px 24px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+.b{display:block;width:100%;padding:14px;margin-top:8px;border-radius:16px;background:var(--c2);font-weight:600;text-align:left}
+.b.pri{background:var(--ac);color:#111;text-align:center}
+label{display:block;color:var(--mut);font-size:13px;margin-top:8px}
+input,textarea{width:100%;margin-top:4px;padding:11px;border-radius:12px;border:0;background:var(--c2);color:var(--tx);font:inherit}
+textarea{min-height:220px}.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.sr{display:grid;grid-template-columns:24px 1fr 1fr 44px;gap:8px;align-items:center;margin-top:8px}
+.sr input{margin:0;text-align:center}
+.ck{height:42px;border-radius:12px;background:var(--c2);color:var(--mut)}.ck.on{background:var(--ok);color:#111}
+.lnk{color:var(--ac);margin-top:10px;font-weight:600}
+.bar2{position:fixed;left:14px;right:14px;bottom:calc(76px + env(safe-area-inset-bottom));display:flex;gap:14px;align-items:center;background:var(--c2);border-radius:20px;padding:10px 12px;font-weight:700}
+.bar2 button{margin-left:auto;padding:10px 16px;border-radius:14px}
+svg text{fill:var(--mut);font-size:10px}.bar{fill:var(--tx)}.dot{fill:var(--ac);fill-opacity:.75}
+</style></head><body>
+<div id="view"></div>
+<nav><button data-t="today" class="on">Сегодня</button><button data-t="stats">Статистика</button><button data-t="gym">Тренировки</button></nav>
+<div id="sh" hidden><div class="bd"></div><div class="sheet"></div></div>
+<input type="file" id="file" accept="image/*" hidden>
+<script>
+const API="https://https://cxgkzeiewsbgtowqdsvr.supabase.co/functions/v1/api"; // <- замените
+const tg=Telegram.WebApp;tg.ready();tg.expand();try{tg.setHeaderColor("#101114");tg.setBackgroundColor("#101114")}catch(e){}
+const $=s=>document.querySelector(s);
+const G=JSON.parse(localStorage.goals||'{"kcal":3600,"p":160,"f":90,"c":430}'); // цели, поправьте под себя
+const DN=["Вс","Пн","Вт","Ср","Чт","Пт","Сб"],pad=n=>String(n).padStart(2,"0");
+let tab="today",day=new Date(),sess=null,tick,img,qa=[],pending=[],cur,hist=[],prog=[],LOGS=[],PSRC="";
+const t2=d=>pad(d.getHours())+":"+pad(d.getMinutes());
+const sod=d=>{const x=new Date(d);x.setHours(0,0,0,0);return x};
+const rng=(d,n=1)=>{const a=sod(d),b=new Date(a);b.setDate(b.getDate()+n);return{from:a.toISOString(),to:b.toISOString()}};
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const sum=a=>a.reduce((t,m)=>({kcal:t.kcal+m.kcal,p:t.p+ +m.p,f:t.f+ +m.f,c:t.c+ +m.c}),{kcal:0,p:0,f:0,c:0});
+async function api(action,d={}){const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData:tg.initData,action,...d})});const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
+function sheet(h){$("#sh").hidden=!h;$(".sheet").innerHTML=h||""}
+$(".bd").onclick=()=>sheet();
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x==b));show()});
+async function show(){try{if(tab=="today")await today();else if(tab=="stats")await stats();else if(sess)drawSess();else await gym()}catch(e){$("#view").innerHTML=`<p class=card>${esc(e.message)}</p>`}}
+function mv(n){day.setDate(day.getDate()+n);show()}
+
+/* ---------- Питание ---------- */
+async function today(){
+ const{meals}=await api("meals",rng(day)),s=sum(meals),left=G.kcal-s.kcal,C=2*Math.PI*52,pct=Math.min(1,s.kcal/G.kcal);
+ const bar=(n,v,g)=>`<div class=mb><span>${n}</span><span>${Math.round(v)} / ${g} г</span><i><b style="width:${Math.min(100,v/g*100)}%"></b></i></div>`;
+ $("#view").innerHTML=`<div class=dn><button onclick="mv(-1)">‹</button><h2>${day.toLocaleDateString("ru",{weekday:"long",day:"numeric",month:"long"})}</h2><button onclick="mv(1)">›</button></div>
+ <div class=row><div class="card ring"><svg viewBox="0 0 120 120"><circle cx=60 cy=60 r=52 class=tr /><circle cx=60 cy=60 r=52 class=pg stroke-dasharray="${pct*C} ${C}" transform="rotate(-90 60 60)"/></svg><div><b>${Math.abs(Math.round(left))}</b><small>${left<0?"сверх нормы":"осталось"}, ккал</small></div></div>
+ <div class="card">${bar("Белки",s.p,G.p)}${bar("Жиры",s.f,G.f)}${bar("Углеводы",s.c,G.c)}</div></div>
+ ${meals.map(m=>`<div class="card meal" onclick="delMeal(${m.id})"><small>${t2(new Date(m.eaten_at))}</small><b>${esc(m.name)}</b><span>${m.kcal} ккал · Б ${Math.round(m.p)} · Ж ${Math.round(m.f)} · У ${Math.round(m.c)}</span></div>`).join("")||"<p class=mut style='margin-top:20px'>Записей нет. Нажмите +, чтобы добавить приём пищи.</p>"}
+ <button class=fab onclick="addMenu()">+</button>`}
+function delMeal(id){tg.showConfirm("Удалить запись?",async ok=>{if(ok){await api("del_meal",{id});show()}})}
+function addMenu(){sheet(`<h3>Добавить еду</h3><button class=b onclick="$('#file').click()">📷 Определить по фото</button><button class=b onclick="histSheet()">🕘 Из истории</button><button class=b onclick="editor({name:'',kcal:0,p:0,f:0,c:0})">✍️ Ввести вручную</button>`)}
+function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,1024/Math.max(i.width,i.height)),c=document.createElement("canvas");c.width=i.width*k;c.height=i.height*k;c.getContext("2d").drawImage(i,0,0,c.width,c.height);r(c.toDataURL("image/jpeg",.8))};i.src=URL.createObjectURL(f)})}
+$("#file").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;sheet("<p class=mut>Подготавливаю фото…</p>");img=await shrink(f);qa=[];run()};
+async function run(){sheet("<p class=mut>Анализирую блюдо…</p>");try{const r=await api("analyze",{image:img,qa});
+ if(r.questions?.length){pending=r.questions;sheet(`<h3>Уточните</h3>${pending.map((q,i)=>`<label>${esc(q)}<input id=q${i}></label>`).join("")}<button class="b pri" onclick="ans()">Рассчитать</button>`)}else editor(r)}catch(e){sheet(`<p>${esc(e.message)}</p><button class=b onclick="run()">Повторить</button>`)}}
+function ans(){qa=pending.map((q,i)=>({q,a:$("#q"+i).value||"не знаю"}));run()}
+function editor(m){cur=m;sheet(`<h3>Проверьте и сохраните</h3><label>Название<input id=en value="${esc(m.name)}"></label><div class=g4>${[["kcal","Ккал"],["p","Б"],["f","Ж"],["c","У"]].map(([k,n])=>`<label>${n}<input id=e${k} type=number inputmode=decimal value="${Math.round(m[k]||0)}"></label>`).join("")}</div><button class="b pri" onclick="saveMeal()">Сохранить</button>`)}
+async function saveMeal(){const n=new Date(),d=new Date(day);d.setHours(n.getHours(),n.getMinutes());const g=k=>+$("#e"+k).value||0;
+ await api("save_meal",{name:$("#en").value||"Блюдо",kcal:g("kcal"),p:g("p"),f:g("f"),c:g("c"),eaten_at:d.toISOString()});sheet();tab="today";show()}
+async function histSheet(){sheet("<p class=mut>Загружаю…</p>");const to=new Date(Date.now()+864e5),from=new Date(Date.now()-60*864e5);
+ const{meals}=await api("meals",{from:from.toISOString(),to:to.toISOString()});const seen=new Set();hist=[];
+ meals.reverse().forEach(m=>{const k=m.name.toLowerCase();if(!seen.has(k)){seen.add(k);hist.push(m)}});
+ sheet(`<h3>Из истории</h3>${hist.slice(0,40).map((m,i)=>`<button class=b onclick="editor(hist[${i}])">${esc(m.name)}<br><small>${m.kcal} ккал · Б ${Math.round(m.p)} Ж ${Math.round(m.f)} У ${Math.round(m.c)}</small></button>`).join("")||"<p class=mut>История пуста: сначала добавьте еду.</p>"}`)}
+
+/* ---------- Статистика ---------- */
+async function stats(){
+ const d0=sod(new Date());d0.setDate(d0.getDate()-6);
+ const{meals}=await api("meals",{from:d0.toISOString(),to:new Date(Date.now()+864e5).toISOString()});
+ const cols=[...Array(7)].map((_,i)=>{const d=new Date(d0);d.setDate(d.getDate()+i);return d}),key=d=>sod(d).getTime();
+ const tot=cols.map(d=>sum(meals.filter(m=>key(new Date(m.eaten_at))==key(d))).kcal),mx=Math.max(G.kcal,...tot,1),W=320,H=140,bw=W/7;
+ const bars=tot.map((v,i)=>`<rect class=bar x="${i*bw+9}" y="${H-v/mx*H}" width="${bw-18}" height="${v/mx*H}" rx=6 /><text x="${i*bw+bw/2}" y="${H+14}" text-anchor=middle>${DN[cols[i].getDay()]}</text>`).join("");
+ const gy=H-G.kcal/mx*H,hrs=[0,6,12,18,24].map(h=>`<line x1=22 x2=320 y1="${h/24*190+8}" y2="${h/24*190+8}" stroke="#272a31"/><text x=0 y="${h/24*190+11}">${pad(h%24)}:00</text>`).join("");
+ const dots=meals.map(m=>{const t=new Date(m.eaten_at),i=cols.findIndex(d=>key(d)==key(t));if(i<0)return"";return`<circle class=dot cx="${22+i*(298/7)+298/14}" cy="${(t.getHours()+t.getMinutes()/60)/24*190+8}" r="${3+Math.sqrt(m.kcal)/3.4}"><title>${esc(m.name)}, ${m.kcal} ккал</title></circle>`}).join("");
+ const avg=Math.round(tot.reduce((a,b)=>a+b,0)/7);
+ $("#view").innerHTML=`<div class=dn><h2>Статистика</h2><small>среднее: ${avg} ккал/день</small></div>
+ <div class=card><small>Калории по дням, линия — ваша норма</small><svg viewBox="0 0 ${W} ${H+22}" style="width:100%;margin-top:8px">${bars}<line x1=0 x2=${W} y1=${gy} y2=${gy} stroke="#ff7a45" stroke-dasharray="4 4"/></svg></div>
+ <div class=card><small>Когда вы ели: время суток и размер порции</small><svg viewBox="0 0 ${W} 205" style="width:100%;margin-top:8px">${hrs}${dots}${cols.map((d,i)=>`<text x="${22+i*(298/7)+298/14}" y=203 text-anchor=middle>${DN[d.getDay()]}</text>`).join("")}</svg></div>`}
+
+/* ---------- Тренировки ---------- */
+const EX="# Тренировка 1\nПрисед со штангой, 3, 6-10\nРумынская тяга, 3, 6-10\n# Тренировка 2\nЖим лёжа, 3, 6-10\nТяга в наклоне, 3, 8-12";
+function parse(src){const o=[];src.split("\n").forEach(l=>{l=l.trim();if(!l)return;if(l[0]=="#")o.push({name:l.slice(1).trim(),ex:[]});else if(o.length){const[n,s,r]=l.split(",").map(x=>x.trim());o[o.length-1].ex.push({n,s:+s||3,r:r||""})}});return o}
+async function gym(){
+ const[p,l]=await Promise.all([api("program"),api("logs")]);PSRC=p.src;prog=parse(p.src);LOGS=l.logs;
+ const vol=e=>e.reduce((a,x)=>a+x.sets.reduce((b,s)=>b+s.w*s.r,0),0);
+ $("#view").innerHTML=`<div class=dn><h2>Тренировки</h2><button onclick="editProg()" style="font-size:16px">✎</button></div>
+ ${prog.map((d,i)=>`<button class="card b" style="margin:8px 0" onclick="startDay(${i})"><b>${esc(d.name)}</b><br><small>${d.ex.map(e=>esc(e.n)).join(", ")}</small></button>`).join("")||"<p class=mut>Программы пока нет. Нажмите ✎ и составьте её по дням.</p>"}
+ <h3 style="margin-top:18px">История</h3>${LOGS.slice(0,10).map(g=>`<div class=card><b>${esc(g.day_label)}</b><br><small>${new Date(g.started_at).toLocaleDateString("ru")} · ${Math.round(g.duration_s/60)} мин · ${Math.round(vol(g.exercises))} кг общий вес</small></div>`).join("")||"<p class=mut>Здесь появятся завершённые тренировки.</p>"}`}
+function editProg(){sheet(`<h3>Программа</h3><small>Строка с # — день. Упражнение: название, подходы, повторения.</small><textarea id=ps>${esc(PSRC||EX)}</textarea><button class="b pri" onclick="saveProg()">Сохранить программу</button>`)}
+async function saveProg(){await api("save_program",{src:$("#ps").value});sheet();show()}
+function startDay(i){const d=prog[i],last={};[...LOGS].reverse().forEach(l=>l.exercises.forEach(e=>last[e.n]=e.sets));
+ sess={name:d.name,t0:Date.now(),ex:d.ex.map(e=>({n:e.n,r:e.r,last:last[e.n]||[],sets:[...Array(e.s)].map(()=>({w:"",r:"",d:false}))}))};clearInterval(tick);tick=setInterval(timer,1000);drawSess()}
+function drawSess(){$("#view").innerHTML=`<div class=dn><button onclick="quit()">‹</button><h2>${esc(sess.name)}</h2><span style="width:38px"></span></div>`+
+ sess.ex.map((e,i)=>`<div class=card><b>${esc(e.n)}</b> <small>${esc(e.r)} повт.</small>${e.sets.map((s,j)=>{const l=e.last[j];return`<div class=sr><small>${j+1}</small><input type=number inputmode=decimal placeholder="${l?l.w+" кг":"кг"}" value="${s.w}" oninput="up(${i},${j},'w',this.value)"><input type=number inputmode=numeric placeholder="${l?l.r:"повт."}" value="${s.r}" oninput="up(${i},${j},'r',this.value)"><button class="ck ${s.d?"on":""}" onclick="chk(${i},${j})">✓</button></div>`}).join("")}<button class=lnk onclick="addSet(${i})">+ сет</button></div>`).join("")+
+ `<div class=bar2><span id=tm></span><span id=vol></span><button class="pri b" style="width:auto;margin:0 0 0 auto" onclick="finish()">Завершить</button></div>`;timer()}
+function up(i,j,k,v){sess.ex[i].sets[j][k]=v;timer()}
+function chk(i,j){const e=sess.ex[i],s=e.sets[j],l=e.last[j];s.d=!s.d;if(s.d){if(s.w==="")s.w=l?l.w:"";if(s.r==="")s.r=l?l.r:""}drawSess()}
+function addSet(i){sess.ex[i].sets.push({w:"",r:"",d:false});drawSess()}
+function timer(){if(!sess||!$("#tm"))return;const s=Math.floor((Date.now()-sess.t0)/1000);$("#tm").textContent=pad(Math.floor(s/60))+":"+pad(s%60);
+ $("#vol").textContent=Math.round(sess.ex.reduce((a,e)=>a+e.sets.reduce((b,x)=>b+(x.d?(+x.w||0)*(+x.r||0):0),0),0))+" кг"}
+function quit(){tg.showConfirm("Выйти без сохранения?",ok=>{if(ok){clearInterval(tick);sess=null;show()}})}
+async function finish(){const ex=sess.ex.map(e=>({n:e.n,sets:e.sets.filter(s=>s.d).map(s=>({w:+s.w||0,r:+s.r||0}))})).filter(e=>e.sets.length);
+ if(!ex.length)return tg.showAlert("Отметьте хотя бы один сет галочкой.");
+ await api("save_log",{day_label:sess.name,duration_s:Math.floor((Date.now()-sess.t0)/1000),exercises:ex});clearInterval(tick);sess=null;show()}
+show();
+</script></body></html>
